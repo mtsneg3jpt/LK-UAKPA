@@ -1,0 +1,7 @@
+{
+  "name": "LK UAKPA TW III 2026 - Penyusun & Generator Laporan Keuangan",
+  "description": "Aplikasi Penyusunan Laporan Keuangan UAKPA Triwulan III Tahun 2026: Lembar Face LRA, LO, LPE, Neraca dengan tanda tangan KPA, fitur upload dan penyusunan otomatis, Lampiran II (Informasi Keuangan Tertentu), dan Lampiran III (Informasi Kinerja).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
