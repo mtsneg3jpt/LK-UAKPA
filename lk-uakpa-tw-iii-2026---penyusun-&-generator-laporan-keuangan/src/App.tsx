@@ -62,7 +62,7 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<string>('ringkasan');
-  const [showDigitalStamp, setShowDigitalStamp] = useState<boolean>(true);
+  const [showDigitalStamp] = useState<boolean>(false);
 
   React.useEffect(() => {
     try {
