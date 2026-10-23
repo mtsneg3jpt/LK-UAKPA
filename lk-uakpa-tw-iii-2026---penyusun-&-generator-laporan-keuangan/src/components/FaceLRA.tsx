@@ -4,7 +4,7 @@ import { OfficialReportHeader } from './OfficialReportHeader';
 import { KpaSignatureBlock } from './KpaSignatureBlock';
 import { formatNumber, formatPercent } from '../utils/numberFormat';
 import { parseFinancialFile } from '../utils/parser';
-import { Upload } from 'lucide-react';
+import { Upload, Edit3, Check, RotateCcw } from 'lucide-react';
 
 interface FaceLRAProps {
   satker: SatkerProfile;
@@ -22,7 +22,15 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
   showDigitalStamp,
 }) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [formData, setFormData] = useState<LRAItem[]>([...lra]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!isEditing) {
+      setFormData([...lra]);
+    }
+  }, [lra, isEditing]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -33,7 +41,7 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
       if (onUploadLRAFile) {
         await onUploadLRAFile(file);
       } else {
-        const result = await parseFinancialFile(file);
+        const result = await parseFinancialFile(file, 'lra', lra);
         if (result.lra && result.lra.length > 0) {
           onUpdateLRA(result.lra);
         }
@@ -44,6 +52,38 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
     }
   };
 
+  const handleSave = () => {
+    const recalculated = formData.map(row => {
+      const ang26 = Number(row.anggaran) || 0;
+      const real26 = Number(row.realisasi) || 0;
+      const ang25 = Number(row.anggaranLalu) || 0;
+      const real25 = Number(row.realisasiLalu) || 0;
+
+      return {
+        ...row,
+        anggaran: ang26,
+        realisasi: real26,
+        selisih: real26 - ang26,
+        persentase: ang26 > 0 ? Number(((real26 / ang26) * 100).toFixed(2)) : 0,
+        sisaAnggaran: ang26 - real26,
+        anggaranLalu: ang25,
+        realisasiLalu: real25,
+        selisihLalu: real25 - ang25,
+        persenLalu: ang25 > 0 ? Number(((real25 / ang25) * 100).toFixed(2)) : 0,
+      };
+    });
+
+    onUpdateLRA(recalculated);
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setFormData([...lra]);
+    setIsEditing(false);
+  };
+
+  const displayItems = isEditing ? formData : lra;
+
   return (
     <div className="bg-white p-6 sm:p-10 border border-slate-200 rounded-lg shadow-sm print:shadow-none print:border-none print:p-0">
       <OfficialReportHeader
@@ -52,33 +92,62 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
         subtitle="UNTUK PERIODE YANG BERAKHIR 30 SEPTEMBER 2026 DAN 2025"
       />
 
-      {/* Toolbar with Upload SAKTI LRA (Aksi column removed per user instruction) */}
+      {/* Toolbar with Upload SAKTI LRA & Edit Mode */}
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-3 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-slate-900">
             Format Standar SAP Laporan Realisasi Anggaran (LRA)
           </span>
-          <span className="text-slate-500">· Ditandatangani KPA</span>
+          <span className="text-slate-500">· Ditandatangani KPA · Mencakup TA 2026 & TA 2025</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv,.txt"
-            onChange={handleFileChange}
-            className="hidden"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          {!isEditing ? (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv,.txt"
+                onChange={handleFileChange}
+                className="hidden"
+              />
 
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded font-medium shadow-2xs transition-colors cursor-pointer"
-            title="Unggah berkas ekspor LRA dari SAKTI (Excel/CSV/Text)"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>{isUploading ? 'Menyusun LRA...' : 'Upload SAKTI LRA'}</span>
-          </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded font-medium shadow-2xs transition-colors cursor-pointer"
+                title="Unggah berkas ekspor LRA dari SAKTI (Excel/CSV/Text)"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{isUploading ? 'Menyusun LRA...' : 'Upload SAKTI LRA'}</span>
+              </button>
+
+              <button
+                onClick={() => setIsEditing(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded font-medium transition-colors cursor-pointer"
+                title="Edit manual anggaran & realisasi tahun 2026 dan komparatif 2025"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit Nilai (2026 & 2025)</span>
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCancel}
+                className="px-3 py-1.5 border border-slate-300 rounded text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSave}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded font-semibold transition-colors cursor-pointer shadow-2xs"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Simpan Perubahan</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -144,7 +213,7 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
           </thead>
 
           <tbody>
-            {lra.map((row, idx) => {
+            {displayItems.map((row, idx) => {
               const isHeader = row.level === 'header';
               const isGroup = row.level === 'group';
               const isTotal = row.level === 'total';
@@ -197,16 +266,44 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
 
                   {/* 2026: Kolom 2 - ANGGARAN */}
                   <td className="py-1.5 px-2 border-r border-slate-900 text-right font-mono">
-                    {isSectionHeader || isEmptyRow || (ang26 === 0 && !isTotal)
-                      ? ''
-                      : formatNumber(ang26)}
+                    {isEditing && !isSectionHeader && !isEmptyRow ? (
+                      <input
+                        type="number"
+                        value={row.anggaran || ''}
+                        placeholder="0"
+                        onChange={e => {
+                          const updated = [...formData];
+                          updated[idx] = { ...updated[idx], anggaran: Number(e.target.value) || 0 };
+                          setFormData(updated);
+                        }}
+                        className="w-full p-1 border rounded text-right text-xs font-mono bg-white focus:bg-amber-50"
+                      />
+                    ) : isSectionHeader || isEmptyRow || (ang26 === 0 && !isTotal) ? (
+                      ''
+                    ) : (
+                      formatNumber(ang26)
+                    )}
                   </td>
 
                   {/* 2026: Kolom 4 - REALISASI */}
                   <td className="py-1.5 px-2 border-r border-slate-900 text-right font-mono">
-                    {isSectionHeader || isEmptyRow || (real26 === 0 && !isTotal)
-                      ? ''
-                      : formatNumber(real26)}
+                    {isEditing && !isSectionHeader && !isEmptyRow ? (
+                      <input
+                        type="number"
+                        value={row.realisasi || ''}
+                        placeholder="0"
+                        onChange={e => {
+                          const updated = [...formData];
+                          updated[idx] = { ...updated[idx], realisasi: Number(e.target.value) || 0 };
+                          setFormData(updated);
+                        }}
+                        className="w-full p-1 border rounded text-right text-xs font-mono bg-white focus:bg-amber-50"
+                      />
+                    ) : isSectionHeader || isEmptyRow || (real26 === 0 && !isTotal) ? (
+                      ''
+                    ) : (
+                      formatNumber(real26)
+                    )}
                   </td>
 
                   {/* 2026: Kolom 5 - REALISASI DI ATAS (BAWAH) ANGGARAN */}
@@ -225,16 +322,44 @@ export const FaceLRA: React.FC<FaceLRAProps> = ({
 
                   {/* 2025: Kolom 7 - ANGGARAN */}
                   <td className="py-1.5 px-2 border-r border-slate-900 text-right font-mono">
-                    {isSectionHeader || isEmptyRow || (ang25 === 0 && !isTotal)
-                      ? ''
-                      : formatNumber(ang25)}
+                    {isEditing && !isSectionHeader && !isEmptyRow ? (
+                      <input
+                        type="number"
+                        value={row.anggaranLalu || ''}
+                        placeholder="0"
+                        onChange={e => {
+                          const updated = [...formData];
+                          updated[idx] = { ...updated[idx], anggaranLalu: Number(e.target.value) || 0 };
+                          setFormData(updated);
+                        }}
+                        className="w-full p-1 border rounded text-right text-xs font-mono bg-white focus:bg-amber-50"
+                      />
+                    ) : isSectionHeader || isEmptyRow || (ang25 === 0 && !isTotal) ? (
+                      ''
+                    ) : (
+                      formatNumber(ang25)
+                    )}
                   </td>
 
                   {/* 2025: Kolom 8 - REALISASI */}
                   <td className="py-1.5 px-2 border-r border-slate-900 text-right font-mono">
-                    {isSectionHeader || isEmptyRow || (real25 === 0 && !isTotal)
-                      ? ''
-                      : formatNumber(real25)}
+                    {isEditing && !isSectionHeader && !isEmptyRow ? (
+                      <input
+                        type="number"
+                        value={row.realisasiLalu || ''}
+                        placeholder="0"
+                        onChange={e => {
+                          const updated = [...formData];
+                          updated[idx] = { ...updated[idx], realisasiLalu: Number(e.target.value) || 0 };
+                          setFormData(updated);
+                        }}
+                        className="w-full p-1 border rounded text-right text-xs font-mono bg-white focus:bg-amber-50"
+                      />
+                    ) : isSectionHeader || isEmptyRow || (real25 === 0 && !isTotal) ? (
+                      ''
+                    ) : (
+                      formatNumber(real25)
+                    )}
                   </td>
 
                   {/* 2025: Kolom 9 - REALISASI DI ATAS (BAWAH) ANGGARAN */}

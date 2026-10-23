@@ -38,9 +38,39 @@ import { ShareLinkModal } from './components/ShareLinkModal';
 import { CheckCircle2 } from 'lucide-react';
 
 export default function App() {
-  const [data, setData] = useState<FullFinancialData>(initialFinancialData);
+  const [data, setData] = useState<FullFinancialData>(() => {
+    try {
+      const saved = localStorage.getItem('lk_uakpa_tw3_data');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && (parsed.satker || parsed.lra)) {
+          return {
+            satker: parsed.satker || initialFinancialData.satker,
+            lra: parsed.lra || initialFinancialData.lra,
+            lo: parsed.lo || initialFinancialData.lo,
+            lpe: parsed.lpe || initialFinancialData.lpe,
+            neraca: parsed.neraca || initialFinancialData.neraca,
+            lampiranIIOfficial: parsed.lampiranIIOfficial || parsed.lampiranII || initialFinancialData.lampiranIIOfficial,
+            lampiranIIIOfficial: parsed.lampiranIIIOfficial || parsed.lampiranIII || initialFinancialData.lampiranIIIOfficial,
+          };
+        }
+      }
+    } catch (e) {
+      console.error('Gagal memuat data dari localStorage', e);
+    }
+    return initialFinancialData;
+  });
+
   const [activeTab, setActiveTab] = useState<string>('ringkasan');
   const [showDigitalStamp, setShowDigitalStamp] = useState<boolean>(true);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('lk_uakpa_tw3_data', JSON.stringify(data));
+    } catch (e) {
+      console.error('Gagal menyimpan data ke localStorage', e);
+    }
+  }, [data]);
 
   // Modals
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -155,10 +185,10 @@ export default function App() {
 
   // Dedicated Upload Handlers per component
   const handleUploadLRAFile = async (file: File) => {
-    const result = await parseFinancialFile(file);
+    const result = await parseFinancialFile(file, 'lra', data.lra);
     if (result.lra && result.lra.length > 0) {
       handleUpdateLRA(result.lra);
-      showToast('Berhasil mengunggah LRA dari SAKTI! Anggaran & realisasi otomatis tertuang pada Lampiran II & III.');
+      showToast('Berhasil mengunggah LRA dari SAKTI! Anggaran & realisasi 2026 dan 2025 otomatis tersimpan dan tertuang pada Lampiran II & III.');
     } else {
       showToast('Gagal memetakan baris LRA dari berkas.');
     }
@@ -196,18 +226,41 @@ export default function App() {
 
   // Global Upload Modal handler
   const handleApplyParsedData = (result: ParseResult) => {
+    // If it's a full JSON backup, restore EVERYTHING directly including Lampiran II & III without recalculating over them!
+    if (result.isFullBackup || result.detectedType === 'backup') {
+      const restoredLampII = result.lampiranIIOfficial || data.lampiranIIOfficial;
+      const restoredLampIII = result.lampiranIIIOfficial || data.lampiranIIIOfficial;
+
+      const restoredData: FullFinancialData = {
+        satker: result.satker || data.satker,
+        lra: result.lra && result.lra.length > 0 ? result.lra : data.lra,
+        lo: result.lo && result.lo.length > 0 ? result.lo : data.lo,
+        lpe: result.lpe && result.lpe.length > 0 ? result.lpe : data.lpe,
+        neraca: result.neraca && result.neraca.length > 0 ? result.neraca : data.neraca,
+        lampiranIIOfficial: restoredLampII,
+        lampiranIIIOfficial: restoredLampIII,
+      };
+
+      setData(restoredData);
+      showToast('Data & seluruh Lampiran II dan III berhasil dipulihkan persis sesuai editan terakhir Anda!');
+      return;
+    }
+
     const newLRA = result.lra && result.lra.length > 0 ? result.lra : data.lra;
     const newLO = result.lo && result.lo.length > 0 ? result.lo : data.lo;
     const newLPE = result.lpe && result.lpe.length > 0 ? result.lpe : data.lpe;
     const newNeraca = result.neraca && result.neraca.length > 0 ? result.neraca : data.neraca;
+
+    const currentLampII = result.lampiranIIOfficial || data.lampiranIIOfficial;
+    const currentLampIII = result.lampiranIIIOfficial || data.lampiranIIIOfficial;
 
     const sync = syncFinancialData(
       newLRA,
       newLO,
       newLPE,
       newNeraca,
-      data.lampiranIIOfficial,
-      data.lampiranIIIOfficial
+      currentLampII,
+      currentLampIII
     );
 
     setData(prev => ({
@@ -229,6 +282,11 @@ export default function App() {
   };
 
   const handleResetToDefault = () => {
+    try {
+      localStorage.removeItem('lk_uakpa_tw3_data');
+    } catch (e) {
+      console.error(e);
+    }
     setData({ ...initialFinancialData });
     showToast('Data dikembalikan ke standar resmi KPPN Bantaeng.');
   };
@@ -261,9 +319,22 @@ export default function App() {
     reader.onload = (e) => {
       try {
         const parsed = JSON.parse(e.target?.result as string);
-        if (parsed && parsed.satker && parsed.lra && parsed.lo && parsed.lpe && parsed.neraca) {
-          setData(parsed);
-          showToast('Data berhasil dipulihkan dari file cadangan!');
+        if (parsed && (parsed.satker || parsed.lra)) {
+          const restoredLampII = parsed.lampiranIIOfficial || parsed.lampiranII || data.lampiranIIOfficial;
+          const restoredLampIII = parsed.lampiranIIIOfficial || parsed.lampiranIII || data.lampiranIIIOfficial;
+
+          const completeData: FullFinancialData = {
+            satker: parsed.satker || data.satker,
+            lra: parsed.lra || data.lra,
+            lo: parsed.lo || data.lo,
+            lpe: parsed.lpe || data.lpe,
+            neraca: parsed.neraca || data.neraca,
+            lampiranIIOfficial: restoredLampII,
+            lampiranIIIOfficial: restoredLampIII,
+          };
+
+          setData(completeData);
+          showToast('Data & seluruh Lampiran II dan III berhasil dipulihkan persis sesuai editan terakhir Anda!');
         } else {
           alert('Format file cadangan tidak valid!');
         }
@@ -327,19 +398,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Stamp verification toggle */}
-            <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700">
-              <input
-                type="checkbox"
-                checked={showDigitalStamp}
-                onChange={e => setShowDigitalStamp(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-slate-900 focus:ring-slate-900"
-              />
-              <span>Tanda Tangan & Verifikasi KPA</span>
-            </label>
-
-            <span className="hidden sm:inline text-slate-300">|</span>
-
             {/* Quick action buttons */}
             <button
               onClick={() => setActiveTab('pernyataan')}
@@ -427,6 +485,24 @@ export default function App() {
             lampiranII={data.lampiranIIOfficial}
             onUpdateLampiranII={handleUpdateLampiranII}
             showDigitalStamp={showDigitalStamp}
+            lra={data.lra}
+            onUploadLRAFile={handleUploadLRAFile}
+            onSyncFromLRA={() => {
+              const sync = syncFinancialData(
+                data.lra,
+                data.lo,
+                data.lpe,
+                data.neraca,
+                data.lampiranIIOfficial,
+                data.lampiranIIIOfficial
+              );
+              setData(prev => ({
+                ...prev,
+                lampiranIIOfficial: sync.lampiranII,
+                lampiranIIIOfficial: sync.lampiranIII,
+              }));
+              showToast('Lampiran II berhasil disinkronkan ulang dengan data LRA (Tahun 2026 & 2025)!');
+            }}
           />
         )}
 

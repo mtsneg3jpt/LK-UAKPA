@@ -177,29 +177,25 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               </div>
 
               {/* Breakdown count */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-emerald-200/80">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-emerald-200/80">
                 <div className="p-2 bg-white rounded border border-emerald-100">
-                  <span className="text-[10px] text-slate-500 uppercase">LRA</span>
+                  <span className="text-[10px] text-slate-500 uppercase">LRA (2026 & 2025)</span>
                   <p className="font-mono font-semibold text-slate-900">
                     {parseResult.lra ? `${parseResult.lra.length} Baris` : 'Nihil'}
                   </p>
                 </div>
                 <div className="p-2 bg-white rounded border border-emerald-100">
-                  <span className="text-[10px] text-slate-500 uppercase">LO</span>
+                  <span className="text-[10px] text-slate-500 uppercase">LO, LPE, & Neraca</span>
                   <p className="font-mono font-semibold text-slate-900">
-                    {parseResult.lo ? `${parseResult.lo.length} Baris` : 'Nihil'}
+                    {parseResult.neraca ? `${parseResult.neraca.length} Akun Neraca` : 'Tersedia'}
                   </p>
                 </div>
                 <div className="p-2 bg-white rounded border border-emerald-100">
-                  <span className="text-[10px] text-slate-500 uppercase">LPE</span>
-                  <p className="font-mono font-semibold text-slate-900">
-                    {parseResult.lpe ? `${parseResult.lpe.length} Baris` : 'Nihil'}
-                  </p>
-                </div>
-                <div className="p-2 bg-white rounded border border-emerald-100">
-                  <span className="text-[10px] text-slate-500 uppercase">Neraca</span>
-                  <p className="font-mono font-semibold text-slate-900">
-                    {parseResult.neraca ? `${parseResult.neraca.length} Baris` : 'Nihil'}
+                  <span className="text-[10px] text-slate-500 uppercase">Lampiran II & III</span>
+                  <p className="font-mono font-semibold text-emerald-700">
+                    {parseResult.lampiranIIOfficial || parseResult.lampiranIIIOfficial
+                      ? 'Utuh Sesuai Editan'
+                      : 'Otomatis'}
                   </p>
                 </div>
               </div>

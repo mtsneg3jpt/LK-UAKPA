@@ -1,15 +1,28 @@
 import * as XLSX from 'xlsx';
-import { LRAItem, LOItem, LPEItem, NeracaItem } from '../types/financial';
+import {
+  LRAItem,
+  LOItem,
+  LPEItem,
+  NeracaItem,
+  SatkerProfile,
+  LampiranIIData,
+  LampiranIIIData,
+} from '../types/financial';
 import { parseIndonesianNumber } from './numberFormat';
+import { initialFinancialData } from '../data/defaultData';
 
 export interface ParseResult {
-  detectedType: 'lra' | 'lo' | 'lpe' | 'neraca' | 'multisheet' | 'unknown';
+  detectedType: 'lra' | 'lo' | 'lpe' | 'neraca' | 'multisheet' | 'backup' | 'unknown';
   lra?: LRAItem[];
   lo?: LOItem[];
   lpe?: LPEItem[];
   neraca?: NeracaItem[];
+  satker?: SatkerProfile;
+  lampiranIIOfficial?: LampiranIIData;
+  lampiranIIIOfficial?: LampiranIIIData;
   summaryMessage: string;
   sheetNames?: string[];
+  isFullBackup?: boolean;
 }
 
 /**
@@ -17,7 +30,8 @@ export interface ParseResult {
  */
 export async function parseFinancialFile(
   file: File,
-  expectedType?: 'lra' | 'lo' | 'lpe' | 'neraca'
+  expectedType?: 'lra' | 'lo' | 'lpe' | 'neraca',
+  existingLRA?: LRAItem[]
 ): Promise<ParseResult> {
   const fileName = file.name.toLowerCase();
 
@@ -26,14 +40,31 @@ export async function parseFinancialFile(
     const text = await file.text();
     try {
       const data = JSON.parse(text);
-      if (data.lra || data.lo || data.lpe || data.neraca) {
+      if (
+        data.lra ||
+        data.lo ||
+        data.lpe ||
+        data.neraca ||
+        data.lampiranIIOfficial ||
+        data.lampiranII ||
+        data.lampiranIIIOfficial ||
+        data.lampiranIII
+      ) {
+        const lampII = data.lampiranIIOfficial || data.lampiranII;
+        const lampIII = data.lampiranIIIOfficial || data.lampiranIII;
+
         return {
-          detectedType: 'multisheet',
+          detectedType: 'backup',
           lra: data.lra,
           lo: data.lo,
           lpe: data.lpe,
           neraca: data.neraca,
-          summaryMessage: 'Berhasil memuat seluruh paket Laporan Keuangan dari berkas JSON SAKTI.',
+          satker: data.satker,
+          lampiranIIOfficial: lampII,
+          lampiranIIIOfficial: lampIII,
+          isFullBackup: true,
+          summaryMessage:
+            'Berhasil memuat seluruh paket Laporan Keuangan lengkap beserta Lampiran II dan Lampiran III dari berkas JSON.',
         };
       }
     } catch {
@@ -66,11 +97,11 @@ export async function parseFinancialFile(
     const rows: any[][] = XLSX.utils.sheet_to_json(targetSheet, { header: 1 });
 
     if (expectedType === 'lra') {
-      const lra = parseLRARows(rows);
+      const lra = parseLRARows(rows, existingLRA);
       return {
         detectedType: 'lra',
         lra,
-        summaryMessage: `Berhasil mengekstrak ${lra.length} baris LRA dari berkas SAKTI.`,
+        summaryMessage: `Berhasil mengekstrak ${lra.length} baris LRA (Tahun 2026 & Komparatif 2025) dari berkas SAKTI.`,
       };
     } else if (expectedType === 'lo') {
       const lo = parseLORows(rows);
@@ -113,7 +144,7 @@ export async function parseFinancialFile(
     const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
     if (lowerName.includes('lra') || lowerName.includes('realisasi')) {
-      parsedLRA = parseLRARows(rows);
+      parsedLRA = parseLRARows(rows, existingLRA);
       hasLRA = true;
     } else if (lowerName.includes('lo') || lowerName.includes('operasional')) {
       parsedLO = parseLORows(rows);
@@ -156,11 +187,11 @@ export async function parseFinancialFile(
     .toLowerCase();
 
   if (textContent.includes('realisasi anggaran') || textContent.includes('lra') || textContent.includes('belanja pegawai')) {
-    const lra = parseLRARows(allRows);
+    const lra = parseLRARows(allRows, existingLRA);
     return {
       detectedType: 'lra',
       lra,
-      summaryMessage: `Berhasil mengekstrak ${lra.length} baris komponen LRA secara otomatis.`,
+      summaryMessage: `Berhasil mengekstrak ${lra.length} baris komponen LRA (Tahun 2026 & Komparatif 2025) secara otomatis.`,
     };
   }
 
@@ -192,7 +223,7 @@ export async function parseFinancialFile(
   }
 
   // Default fallback: parse as general table
-  const lraFallback = parseLRARows(allRows);
+  const lraFallback = parseLRARows(allRows, existingLRA);
   return {
     detectedType: 'lra',
     lra: lraFallback,
@@ -200,20 +231,22 @@ export async function parseFinancialFile(
   };
 }
 
-function parseLRARows(rows: any[][]): LRAItem[] {
+function parseLRARows(rows: any[][], existingLRA?: LRAItem[]): LRAItem[] {
   const items: LRAItem[] = [];
+  const baselineList = existingLRA && existingLRA.length > 0 ? existingLRA : initialFinancialData.lra;
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.length === 0) continue;
 
-    // Filter out common header title strings
+    // Filter out title/header banner rows
     const joined = row.join(' ').toLowerCase();
     if (
       joined.includes('kementerian') ||
       joined.includes('laporan realisasi') ||
       joined.includes('lembar kerja') ||
-      joined.includes('anggaran setelah revisi')
+      joined.includes('anggaran setelah revisi') ||
+      (joined.includes('uraian') && joined.includes('anggaran') && joined.includes('realisasi'))
     ) {
       continue;
     }
@@ -231,39 +264,122 @@ function parseLRARows(rows: any[][]): LRAItem[] {
         numbers.push(cell);
       } else {
         const str = String(cell).trim();
-        // check if this cell looks like an Indonesian formatted number
+        // Check if cell is numeric or Indonesian formatted currency / accounting number
         if (/^[\d.,()\- ]+$/.test(str) && /[0-9]/.test(str)) {
           const num = parseIndonesianNumber(str);
           numbers.push(num);
-        } else if (/^\d{1,6}$/.test(str) && !uraian) {
+        } else if (/^\d{1,6}$/.test(str) && !kode && !uraian) {
           kode = str;
-        } else if (!uraian && str.length > 2) {
+        } else if (!uraian && str.length > 2 && !/^[\d.,()\- ]+$/.test(str)) {
           uraian = str;
         }
       }
     }
 
     if (uraian) {
-      const anggaran = numbers[0] || 0;
-      const realisasi = numbers[1] || 0;
+      let anggaran = 0;
+      let realisasi = 0;
+      let anggaranLalu = 0;
+      let realisasiLalu = 0;
+
+      // Match with baseline LRA by kode or clean uraian
+      const cleanUraian = uraian.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const matched = baselineList.find(b => {
+        if (kode && b.kode && b.kode === kode) return true;
+        const bClean = b.uraian.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return cleanUraian && (bClean.includes(cleanUraian) || cleanUraian.includes(bClean));
+      });
+
+      if (numbers.length >= 8) {
+        // Standard SAKTI full comparative: [Ang26, Real26, Selisih26, Pct26, Ang25, Real25, Selisih25, Pct25]
+        anggaran = numbers[0] || 0;
+        realisasi = numbers[1] || 0;
+        anggaranLalu = numbers[4] || 0;
+        realisasiLalu = numbers[5] || 0;
+      } else if (numbers.length === 6 || numbers.length === 7) {
+        // [Ang26, Real26, Selisih/Pct26, Ang25, Real25, Selisih/Pct25]
+        anggaran = numbers[0] || 0;
+        realisasi = numbers[1] || 0;
+        anggaranLalu = numbers[3] || 0;
+        realisasiLalu = numbers[4] || 0;
+      } else if (numbers.length === 4 || numbers.length === 5) {
+        // [Ang26, Real26, Ang25, Real25] or [Ang26, Real26, Selisih26, Ang25, Real25]
+        if (numbers.length === 5) {
+          anggaran = numbers[0] || 0;
+          realisasi = numbers[1] || 0;
+          anggaranLalu = numbers[3] || 0;
+          realisasiLalu = numbers[4] || 0;
+        } else {
+          anggaran = numbers[0] || 0;
+          realisasi = numbers[1] || 0;
+          anggaranLalu = numbers[2] || 0;
+          realisasiLalu = numbers[3] || 0;
+        }
+      } else if (numbers.length === 3) {
+        anggaran = numbers[0] || 0;
+        realisasi = numbers[1] || 0;
+        // Check if third number is 2026 diff/selisih or 2025 realization
+        const diff26 = realisasi - anggaran;
+        if (Math.abs(numbers[2] - diff26) < 2 || Math.abs(numbers[2] - (anggaran - realisasi)) < 2) {
+          // It's selisih 2026, so 2025 is preserved from baseline
+          if (matched) {
+            anggaranLalu = matched.anggaranLalu || 0;
+            realisasiLalu = matched.realisasiLalu || 0;
+          }
+        } else {
+          realisasiLalu = numbers[2] || 0;
+          if (matched) {
+            anggaranLalu = matched.anggaranLalu || 0;
+          }
+        }
+      } else if (numbers.length >= 2) {
+        // Single year 2026 only [Ang26, Real26] -> PRESERVE 2025 from baseline!
+        anggaran = numbers[0] || 0;
+        realisasi = numbers[1] || 0;
+        if (matched) {
+          anggaranLalu = matched.anggaranLalu || 0;
+          realisasiLalu = matched.realisasiLalu || 0;
+        }
+      } else if (numbers.length === 1) {
+        anggaran = numbers[0] || 0;
+        if (matched) {
+          realisasi = matched.realisasi || 0;
+          anggaranLalu = matched.anggaranLalu || 0;
+          realisasiLalu = matched.realisasiLalu || 0;
+        }
+      }
+
+      // If 2025 is still 0 but baseline has values, preserve baseline values
+      if (anggaranLalu === 0 && realisasiLalu === 0 && matched) {
+        anggaranLalu = matched.anggaranLalu || 0;
+        realisasiLalu = matched.realisasiLalu || 0;
+      }
+
       const sisa = anggaran - realisasi;
-      const pct = anggaran > 0 ? (realisasi / anggaran) * 100 : 0;
-      const realisasiLalu = numbers[2] || 0;
+      const selisih = realisasi - anggaran;
+      const pct = anggaran > 0 ? Number(((realisasi / anggaran) * 100).toFixed(2)) : 0;
+
+      const selisihLalu = realisasiLalu - anggaranLalu;
+      const persenLalu = anggaranLalu > 0 ? Number(((realisasiLalu / anggaranLalu) * 100).toFixed(2)) : 0;
 
       const isHeader = uraian === uraian.toUpperCase() && numbers.length <= 1;
       const isTotal = uraian.toLowerCase().includes('jumlah') || uraian.toLowerCase().includes('surplus') || uraian.toLowerCase().includes('total');
 
       items.push({
-        id: `lra-row-${i}`,
-        kode,
+        id: matched?.id || `lra-row-${i}`,
+        kode: kode || matched?.kode,
         uraian,
         anggaran,
         realisasi,
-        persentase: Number(pct.toFixed(2)),
+        selisih,
+        persentase: pct,
         sisaAnggaran: sisa,
+        anggaranLalu,
         realisasiLalu,
-        level: isTotal ? 'total' : isHeader ? 'header' : kode ? 'item' : 'subgroup',
-        isBold: isHeader || isTotal,
+        selisihLalu,
+        persenLalu,
+        level: isTotal ? 'total' : isHeader ? 'header' : kode ? 'item' : (matched?.level || 'subgroup'),
+        isBold: isHeader || isTotal || matched?.isBold,
       });
     }
   }

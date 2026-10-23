@@ -82,6 +82,8 @@ export interface EstimasiBelanjaItem {
   rencanaTW4: number;
   estimasiTotal: number; // realisasiTW3 + rencanaTW4
   estimasiTidakTerealisasi: number; // pagu - estimasiTotal
+  paguLalu?: number; // Pagu 2025 (Komparatif)
+  realisasiLalu?: number; // Realisasi s.d. 30 September 2025 (Komparatif)
 }
 
 export interface PaguMinusPegawaiItem {

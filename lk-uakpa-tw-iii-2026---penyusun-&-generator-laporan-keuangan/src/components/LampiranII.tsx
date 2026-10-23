@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { LampiranIIData, SatkerProfile } from '../types/financial';
+import React, { useRef, useState } from 'react';
+import { LampiranIIData, LRAItem, SatkerProfile } from '../types/financial';
 import { KpaSignatureBlock } from './KpaSignatureBlock';
 import { formatNumber, formatPercent } from '../utils/numberFormat';
 import {
@@ -12,6 +12,8 @@ import {
   Plus,
   Trash2,
   Sparkles,
+  Upload,
+  RefreshCw,
 } from 'lucide-react';
 
 interface LampiranIIProps {
@@ -19,6 +21,9 @@ interface LampiranIIProps {
   lampiranII: LampiranIIData;
   onUpdateLampiranII: (data: LampiranIIData) => void;
   showDigitalStamp: boolean;
+  lra?: LRAItem[];
+  onUploadLRAFile?: (file: File) => Promise<void>;
+  onSyncFromLRA?: () => void;
 }
 
 export const LampiranII: React.FC<LampiranIIProps> = ({
@@ -26,9 +31,14 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
   lampiranII,
   onUpdateLampiranII,
   showDigitalStamp,
+  lra,
+  onUploadLRAFile,
+  onSyncFromLRA,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<LampiranIIData>({ ...lampiranII });
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Synchronize internal state when prop changes while not editing
   React.useEffect(() => {
@@ -37,6 +47,20 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
     }
   }, [lampiranII, isEditing]);
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      if (onUploadLRAFile) {
+        await onUploadLRAFile(file);
+      }
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   // ========================================================
   // PERHITUNGAN RUMUS OTOMATIS (Penjumlahan, Pengurangan, Total)
   // ========================================================
@@ -44,6 +68,7 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
   // 1.a Estimasi Belanja
   const totalPagu1a = formData.estimasiBelanja.reduce((acc, i) => acc + (Number(i.pagu) || 0), 0);
   const totalRealTW3_1a = formData.estimasiBelanja.reduce((acc, i) => acc + (Number(i.realisasiTW3) || 0), 0);
+  const totalRealLalu_1a = formData.estimasiBelanja.reduce((acc, i) => acc + (Number(i.realisasiLalu) || 0), 0);
   const totalSisaTW3_1a = totalPagu1a - totalRealTW3_1a;
   const totalRencanaTW4_1a = formData.estimasiBelanja.reduce((acc, i) => acc + (Number(i.rencanaTW4) || 0), 0);
   const totalEstimasiTotal_1a = totalRealTW3_1a + totalRencanaTW4_1a;
@@ -105,7 +130,13 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
     persenReal1a >= 70 ? 'telah memenuhi' : 'sedang dipacu untuk mendekati'
   } target penyerapan triwulan III (≥ 70%). Atas sisa pagu sebesar Rp ${formatNumber(
     totalSisaTW3_1a
-  )} direncanakan akan direalisasikan optimal pada triwulan IV tahun 2026.`;
+  )} direncanakan akan direalisasikan optimal pada triwulan IV tahun 2026.${
+    totalRealLalu_1a > 0
+      ? ` Sebagai perbandingan kinerja, realisasi pada periode yang sama TA 2025 tercatat sebesar Rp ${formatNumber(
+          totalRealLalu_1a
+        )}.`
+      : ''
+  }`;
 
   const narasi1aBawah = `Dengan demikian, diperkirakan sampai dengan akhir tahun 2026 total realisasi adalah sebesar Rp ${formatNumber(
     totalEstimasiTotal_1a
@@ -410,15 +441,46 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {!isEditing ? (
-              <button
-                onClick={() => setIsEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded font-medium transition-colors cursor-pointer"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Edit Manual Nilai Tabel</span>
-              </button>
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv,.txt"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded font-medium shadow-2xs transition-colors cursor-pointer"
+                  title="Unggah berkas SAKTI LRA (Excel) langsung ke Lampiran II"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>{isUploading ? 'Menyusun...' : 'Upload SAKTI LRA'}</span>
+                </button>
+
+                {onSyncFromLRA && (
+                  <button
+                    onClick={onSyncFromLRA}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-700 hover:bg-sky-600 text-white rounded font-medium shadow-2xs transition-colors cursor-pointer"
+                    title="Perbarui angka belanja dan pagu minus dari LRA saat ini (2026 & 2025)"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Sinkronkan dari LRA</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded font-medium transition-colors cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Edit Manual Nilai Tabel</span>
+                </button>
+              </>
             ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -510,8 +572,11 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
                       <th className="py-2 px-2 border-r border-slate-900 text-right w-28 bg-emerald-50/50">
                         Estimasi Total Realisasi <span className="text-[9px] font-normal block">(Rumus)</span>
                       </th>
-                      <th className="py-2 px-2 text-right w-28 bg-emerald-50/50">
+                      <th className="py-2 px-2 border-r border-slate-900 text-right w-28 bg-emerald-50/50">
                         Estimasi Pagu Tidak Terealisasi <span className="text-[9px] font-normal block">(Rumus)</span>
+                      </th>
+                      <th className="py-2 px-2 text-right w-28 bg-slate-100 font-bold">
+                        Realisasi s.d. 30 Sep 2025 <span className="text-[9px] font-normal block text-slate-600">(Komparatif TA Lalu)</span>
                       </th>
                     </tr>
                     <tr className="bg-slate-50 text-[10px] text-slate-600 border-b border-slate-900 text-center font-mono">
@@ -522,7 +587,8 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
                       <td className="py-0.5 border-r border-slate-900 bg-emerald-50/30">4 (2 - 3)</td>
                       <td className="py-0.5 border-r border-slate-900">5 (Input)</td>
                       <td className="py-0.5 border-r border-slate-900 bg-emerald-50/30">6 (3 + 5)</td>
-                      <td className="py-0.5 bg-emerald-50/30">7 (2 - 6)</td>
+                      <td className="py-0.5 border-r border-slate-900 bg-emerald-50/30">7 (2 - 6)</td>
+                      <td className="py-0.5 bg-slate-100">8 (Komparasi 2025)</td>
                     </tr>
                   </thead>
                   <tbody>
@@ -620,8 +686,30 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
                           </td>
 
                           {/* Estimasi Pagu Tidak Terealisasi (Rumus Pengurangan: 2 - 6) */}
-                          <td className="py-1.5 px-2 text-right font-mono font-medium bg-slate-50/50">
+                          <td className="py-1.5 px-2 border-r border-slate-900 text-right font-mono font-medium bg-slate-50/50">
                             {formatNumber(sisaTakReal)}
+                          </td>
+
+                          {/* Realisasi 2025 (Komparatif) */}
+                          <td className="py-1.5 px-2 text-right font-mono bg-slate-50/70">
+                            {isEditing ? (
+                              <input
+                                type="number"
+                                value={row.realisasiLalu || ''}
+                                placeholder="0"
+                                onChange={e => {
+                                  const updated = [...formData.estimasiBelanja];
+                                  updated[idx] = {
+                                    ...updated[idx],
+                                    realisasiLalu: Number(e.target.value) || 0,
+                                  };
+                                  setFormData({ ...formData, estimasiBelanja: updated });
+                                }}
+                                className="w-full p-1 border border-slate-300 rounded text-right text-xs font-mono bg-white focus:bg-amber-50"
+                              />
+                            ) : (
+                              row.realisasiLalu ? formatNumber(row.realisasiLalu) : '-'
+                            )}
                           </td>
                         </tr>
                       );
@@ -647,8 +735,11 @@ export const LampiranII: React.FC<LampiranIIProps> = ({
                       <td className="py-2 px-2 border-r border-slate-900 text-right font-mono">
                         {formatNumber(totalEstimasiTotal_1a)}
                       </td>
-                      <td className="py-2 px-2 text-right font-mono">
+                      <td className="py-2 px-2 border-r border-slate-900 text-right font-mono">
                         {formatNumber(totalTidakTerealisasi_1a)}
+                      </td>
+                      <td className="py-2 px-2 text-right font-mono bg-slate-100">
+                        {formatNumber(totalRealLalu_1a)}
                       </td>
                     </tr>
                   </tbody>
